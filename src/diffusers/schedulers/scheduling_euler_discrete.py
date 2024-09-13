@@ -292,8 +292,8 @@ class EulerDiscreteScheduler(SchedulerMixin, ConfigMixin):
         if self.step_index is None:
             self._init_step_index(timestep)
 
-        sigma = self.sigmas[self.step_index]
-        sample = sample / ((sigma**2 + 1) ** 0.5)
+        sigma = self.sigmas[self.step_index]             # get sigma for current timestep. 처음에는 700.
+        sample = sample / ((sigma**2 + 1) ** 0.5)        # sample은 이미 초기 sigma 700이 곱해져 있었음. 이를 sigma+alpha로 다시 나눠줌. 
 
         self.is_scale_input_called = True
         return sample

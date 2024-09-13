@@ -740,16 +740,16 @@ class TimestepEmbedding(nn.Module):
     def forward(self, sample, condition=None):
         if condition is not None:
             sample = sample + self.cond_proj(condition)
-        sample = self.linear_1(sample)
+        sample = self.linear_1(sample)      # (b=2, 320) -> (b=2, 1280)
 
         if self.act is not None:
             sample = self.act(sample)
 
-        sample = self.linear_2(sample)
+        sample = self.linear_2(sample)      # (b=2, 1280) -> (b=2, 1280)
 
         if self.post_act is not None:
             sample = self.post_act(sample)
-        return sample
+        return sample                       # (b=2, 1280)
 
 
 class Timesteps(nn.Module):
@@ -760,15 +760,15 @@ class Timesteps(nn.Module):
         self.downscale_freq_shift = downscale_freq_shift
         self.scale = scale
 
-    def forward(self, timesteps):
+    def forward(self, timesteps):          # timesteps (b=2,) 인 경우에도 사용하고, 부가 시간 정보 added_time_ids 에도 이 클래스 사용. 아래는 timesteps 인 경우
         t_emb = get_timestep_embedding(
-            timesteps,
-            self.num_channels,
-            flip_sin_to_cos=self.flip_sin_to_cos,
-            downscale_freq_shift=self.downscale_freq_shift,
-            scale=self.scale,
+            timesteps,                                      # timesteps: (b=2,) float tensor. e.g. [1.6378, 1.6378]
+            self.num_channels,                              # self.num_channels: 320
+            flip_sin_to_cos=self.flip_sin_to_cos,           # self.flip_sin_to_cos: True
+            downscale_freq_shift=self.downscale_freq_shift, # self.downscale_freq_shift: 0.0
+            scale=self.scale,                               # self.scale: 1
         )
-        return t_emb
+        return t_emb                                        # t_emb: (b=2, 320). sinusoidal timestep embeddings
 
 
 class GaussianFourierProjection(nn.Module):

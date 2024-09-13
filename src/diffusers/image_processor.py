@@ -550,7 +550,7 @@ class VaeImageProcessor(ConfigMixin):
             elif self.config.do_convert_grayscale:
                 image = [self.convert_to_grayscale(i) for i in image]
             image = self.pil_to_numpy(image)  # to np
-            image = self.numpy_to_pt(image)  # to pt
+            image = self.numpy_to_pt(image)  # to pt    # [0.0, 1.0] image
 
         elif isinstance(image[0], np.ndarray):
             image = np.concatenate(image, axis=0) if image[0].ndim == 4 else np.stack(image, axis=0)

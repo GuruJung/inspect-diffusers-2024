@@ -305,25 +305,25 @@ class TransformerSpatioTemporalModel(nn.Module):
                 `tuple` where the first element is the sample tensor.
         """
         # 1. Input
-        batch_frames, _, height, width = hidden_states.shape
+        batch_frames, _, height, width = hidden_states.shape    # hidden_states: (b*t=50, c=320, h=72, w=128)
         num_frames = image_only_indicator.shape[-1]
         batch_size = batch_frames // num_frames
 
-        time_context = encoder_hidden_states
+        time_context = encoder_hidden_states            # (bt=50, 1, 1024). encoder_hidden_states는 image embedding인데, 이상하게 time_context라는 말을 쓰고 있음...
         time_context_first_timestep = time_context[None, :].reshape(
             batch_size, num_frames, -1, time_context.shape[-1]
-        )[:, 0]
+        )[:, 0]               # (b=2, 1, 1024). 첫번째 프레임에 대한 image embdding을 가져온 것임
         time_context = time_context_first_timestep[:, None].broadcast_to(
             batch_size, height * width, time_context.shape[-2], time_context.shape[-1]
-        )
-        time_context = time_context.reshape(batch_size * height * width, -1, time_context.shape[-1])
+        )   # (b=2, h*w=9216, 1, 1024). 이것을 모든 픽셀에 대해 브로드캐스팅함
+        time_context = time_context.reshape(batch_size * height * width, -1, time_context.shape[-1]) # (b*h*w=18432, 1, 1024)
 
-        residual = hidden_states
+        residual = hidden_states      # 초기 상태 저장
 
         hidden_states = self.norm(hidden_states)
         inner_dim = hidden_states.shape[1]
-        hidden_states = hidden_states.permute(0, 2, 3, 1).reshape(batch_frames, height * width, inner_dim)
-        hidden_states = self.proj_in(hidden_states)
+        hidden_states = hidden_states.permute(0, 2, 3, 1).reshape(batch_frames, height * width, inner_dim)  # (b*t=50, h*w=9216, c=320)
+        hidden_states = self.proj_in(hidden_states)   # 선형 프로젝션 (b*t=50, h*w=9216, c=320). c축만 개수가 맞으면 OK.
 
         num_frames_emb = torch.arange(num_frames, device=hidden_states.device)
         num_frames_emb = num_frames_emb.repeat(batch_size, 1)

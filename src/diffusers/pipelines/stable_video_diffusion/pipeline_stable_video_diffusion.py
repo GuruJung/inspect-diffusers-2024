@@ -196,22 +196,22 @@ class StableVideoDiffusionPipeline(DiffusionPipeline):
             # We normalize the image before resizing to match with the original implementation.
             # Then we unnormalize it after resizing.
             image = image * 2.0 - 1.0
-            image = _resize_with_antialiasing(image, (224, 224))
-            image = (image + 1.0) / 2.0
+            image = _resize_with_antialiasing(image, (224, 224))  # (576, 1024) -> (224, 224) 리사이즈. 디테일 깨짐
+            image = (image + 1.0) / 2.0                           # (1, 3, 224, 224) [-0.005, 0.9995] image tensor
 
         # Normalize the image with for CLIP input
-        image = self.feature_extractor(
+        image = self.feature_extractor(         # self.feature_extractor: CLIPImageProcessor
             images=image,
             do_normalize=True,
             do_center_crop=False,
             do_resize=False,
             do_rescale=False,
             return_tensors="pt",
-        ).pixel_values
+        ).pixel_values                          # image: (1, 3, 224, 224) [-1.8048, 2.0572] image tensor
 
-        image = image.to(device=device, dtype=dtype)
-        image_embeddings = self.image_encoder(image).image_embeds
-        image_embeddings = image_embeddings.unsqueeze(1)
+        image = image.to(device=device, dtype=dtype)   # self.image_encoder: CLIPVisionModelWithProjection
+        image_embeddings = self.image_encoder(image).image_embeds   # (b=1, 1024) image embedding tensor
+        image_embeddings = image_embeddings.unsqueeze(1)            # (b=1, seq=1, 1024) image embedding tensor
 
         # duplicate image embeddings for each generation per prompt, using mps friendly method
         bs_embed, seq_len, _ = image_embeddings.shape
@@ -226,7 +226,7 @@ class StableVideoDiffusionPipeline(DiffusionPipeline):
             # to avoid doing two forward passes
             image_embeddings = torch.cat([negative_image_embeddings, image_embeddings])
 
-        return image_embeddings
+        return image_embeddings  # (b=2, 1, 1024) image embedding tensor. 2개의 이미지 임베딩을 가진 tensor. 첫번째는 unconditional (or negative) image embedding, 두번째는 image embedding.
 
     def _encode_vae_image(
         self,
@@ -235,8 +235,8 @@ class StableVideoDiffusionPipeline(DiffusionPipeline):
         num_videos_per_prompt: int,
         do_classifier_free_guidance: bool,
     ):
-        image = image.to(device=device)
-        image_latents = self.vae.encode(image).latent_dist.mode()
+        image = image.to(device=device)              # (b=1, 3, 576, 1024) [-1.0, 1.0] image tensor
+        image_latents = self.vae.encode(image).latent_dist.mode()  # (b=1, 4, 72, 128) [-22.08, 25.12] image latents tensor
 
         # duplicate image_latents for each generation per prompt, using mps friendly method
         image_latents = image_latents.repeat(num_videos_per_prompt, 1, 1, 1)
@@ -277,7 +277,7 @@ class StableVideoDiffusionPipeline(DiffusionPipeline):
         if do_classifier_free_guidance:
             add_time_ids = torch.cat([add_time_ids, add_time_ids])
 
-        return add_time_ids
+        return add_time_ids            # (b=2, 3) added time ids tensor. [ [6, 127, 0.02], [6, 127, 0.02] ] tensor.
 
     def decode_latents(self, latents: torch.Tensor, num_frames: int, decode_chunk_size: int = 14):
         # [batch, frames, channels, height, width] -> [batch*frames, channels, height, width]
@@ -340,7 +340,7 @@ class StableVideoDiffusionPipeline(DiffusionPipeline):
             num_channels_latents // 2,
             height // self.vae_scale_factor,
             width // self.vae_scale_factor,
-        )
+        )            # (1, 25, 4, 72, 128)
         if isinstance(generator, list) and len(generator) != batch_size:
             raise ValueError(
                 f"You have passed a list of generators of length {len(generator)}, but requested an effective batch"
@@ -348,7 +348,7 @@ class StableVideoDiffusionPipeline(DiffusionPipeline):
             )
 
         if latents is None:
-            latents = randn_tensor(shape, generator=generator, device=device, dtype=dtype)
+            latents = randn_tensor(shape, generator=generator, device=device, dtype=dtype)   # latents: (1, 25, 4, 72, 128) 정규분포로 초기화된 tensor
         else:
             latents = latents.to(device)
 
@@ -499,7 +499,7 @@ class StableVideoDiffusionPipeline(DiffusionPipeline):
         fps = fps - 1
 
         # 4. Encode input image using VAE
-        image = self.video_processor.preprocess(image, height=height, width=width).to(device)
+        image = self.video_processor.preprocess(image, height=height, width=width).to(device)  # (b=1, 3, 576, 1024) [-1.0, 1.0] image tensor
         noise = randn_tensor(image.shape, generator=generator, device=device, dtype=image.dtype)
         image = image + noise_aug_strength * noise
 
@@ -513,7 +513,7 @@ class StableVideoDiffusionPipeline(DiffusionPipeline):
             num_videos_per_prompt=num_videos_per_prompt,
             do_classifier_free_guidance=self.do_classifier_free_guidance,
         )
-        image_latents = image_latents.to(image_embeddings.dtype)
+        image_latents = image_latents.to(image_embeddings.dtype)  # (b=2, 4, 72, 128)
 
         # cast back to fp16 if needed
         if needs_upcasting:
@@ -521,7 +521,7 @@ class StableVideoDiffusionPipeline(DiffusionPipeline):
 
         # Repeat the image latents for each frame so we can concatenate them with the noise
         # image_latents [batch, channels, height, width] ->[batch, num_frames, channels, height, width]
-        image_latents = image_latents.unsqueeze(1).repeat(1, num_frames, 1, 1, 1)
+        image_latents = image_latents.unsqueeze(1).repeat(1, num_frames, 1, 1, 1)  # (b=2, t=25, c=4, h=72, w=128). 
 
         # 5. Get Added Time IDs
         added_time_ids = self._get_add_time_ids(
@@ -533,16 +533,16 @@ class StableVideoDiffusionPipeline(DiffusionPipeline):
             num_videos_per_prompt,
             self.do_classifier_free_guidance,
         )
-        added_time_ids = added_time_ids.to(device)
+        added_time_ids = added_time_ids.to(device)    # (b=2, 3) added time ids tensor. [ [6, 127, 0.02], [6, 127, 0.02] ] tensor.
 
         # 6. Prepare timesteps
-        timesteps, num_inference_steps = retrieve_timesteps(self.scheduler, num_inference_steps, device, None, sigmas)
+        timesteps, num_inference_steps = retrieve_timesteps(self.scheduler, num_inference_steps, device, None, sigmas)   # timesteps: (25,) tensor. [1.6378, 1.5755, ..., -1.5537]
 
         # 7. Prepare latent variables
-        num_channels_latents = self.unet.config.in_channels
+        num_channels_latents = self.unet.config.in_channels      # self.unet.config.in_channels: 8
         latents = self.prepare_latents(
             batch_size * num_videos_per_prompt,
-            num_frames,
+            num_frames,                  # 25
             num_channels_latents,
             height,
             width,
@@ -550,15 +550,15 @@ class StableVideoDiffusionPipeline(DiffusionPipeline):
             device,
             generator,
             latents,
-        )
+        )                 # latents: (b=1, 25, 4, 72, 128) schedule에 따라 초기화된 latent tensor
 
         # 8. Prepare guidance scale
-        guidance_scale = torch.linspace(min_guidance_scale, max_guidance_scale, num_frames).unsqueeze(0)
+        guidance_scale = torch.linspace(min_guidance_scale, max_guidance_scale, num_frames).unsqueeze(0)  # (1, 25) guidance scale tensor. [1.0, 1.08, ..., 3.0]
         guidance_scale = guidance_scale.to(device, latents.dtype)
         guidance_scale = guidance_scale.repeat(batch_size * num_videos_per_prompt, 1)
-        guidance_scale = _append_dims(guidance_scale, latents.ndim)
+        guidance_scale = _append_dims(guidance_scale, latents.ndim)  # guidance_scale: (1, 25, 1, 1, 1) guidance scale tensor. [1.0, 1.08, ..., 3.0] 을 확장한 형태임
 
-        self._guidance_scale = guidance_scale
+        self._guidance_scale = guidance_scale            
 
         # 9. Denoising loop
         num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
@@ -566,24 +566,24 @@ class StableVideoDiffusionPipeline(DiffusionPipeline):
         with self.progress_bar(total=num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
                 # expand the latents if we are doing classifier free guidance
-                latent_model_input = torch.cat([latents] * 2) if self.do_classifier_free_guidance else latents
+                latent_model_input = torch.cat([latents] * 2) if self.do_classifier_free_guidance else latents   # (2, 25, 4, 72, 128)
                 latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
 
                 # Concatenate image_latents over channels dimension
-                latent_model_input = torch.cat([latent_model_input, image_latents], dim=2)
+                latent_model_input = torch.cat([latent_model_input, image_latents], dim=2)     # (b=2, t=25, c=8, h=72, w=128)
 
-                # predict the noise residual
+                # predict the noise residual. self.unet: UNetSpatioTemporalConditionModel
                 noise_pred = self.unet(
                     latent_model_input,
                     t,
                     encoder_hidden_states=image_embeddings,
                     added_time_ids=added_time_ids,
                     return_dict=False,
-                )[0]
+                )[0]                                                    # noise_pred: (b=2, t=25, 4, 72, 128) noise prediction tensor
 
                 # perform guidance
                 if self.do_classifier_free_guidance:
-                    noise_pred_uncond, noise_pred_cond = noise_pred.chunk(2)
+                    noise_pred_uncond, noise_pred_cond = noise_pred.chunk(2)          # 예측 노이즈를 unconditional, conditional로 나눔
                     noise_pred = noise_pred_uncond + self.guidance_scale * (noise_pred_cond - noise_pred_uncond)
 
                 # compute the previous noisy sample x_t -> x_t-1

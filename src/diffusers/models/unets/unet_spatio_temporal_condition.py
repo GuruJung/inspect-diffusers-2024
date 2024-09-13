@@ -125,7 +125,7 @@ class UNetSpatioTemporalConditionModel(ModelMixin, ConfigMixin, UNet2DConditionL
             )
 
         # input
-        self.conv_in = nn.Conv2d(
+        self.conv_in = nn.Conv2d(                # 8개의 채널을 320개의 채널로 변환하는 Conv2d 레이어.
             in_channels,
             block_out_channels[0],
             kernel_size=3,
@@ -356,10 +356,10 @@ class UNetSpatioTemporalConditionModel(ModelMixin, ConfigMixin, UNet2DConditionL
 
     def forward(
         self,
-        sample: torch.Tensor,
+        sample: torch.Tensor,                           # (b=2, t=25, c=8, h=256, w=256)
         timestep: Union[torch.Tensor, float, int],
-        encoder_hidden_states: torch.Tensor,
-        added_time_ids: torch.Tensor,
+        encoder_hidden_states: torch.Tensor,            # (b=2, t=1, c=1024)
+        added_time_ids: torch.Tensor,                   # (b=2, v=3). [[fps=6, bucket_id=127, noise_aug_strength=0.02], ...]. 
         return_dict: bool = True,
     ) -> Union[UNetSpatioTemporalConditionOutput, Tuple]:
         r"""
@@ -397,45 +397,45 @@ class UNetSpatioTemporalConditionModel(ModelMixin, ConfigMixin, UNet2DConditionL
             timesteps = timesteps[None].to(sample.device)
 
         # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
-        batch_size, num_frames = sample.shape[:2]
-        timesteps = timesteps.expand(batch_size)
+        batch_size, num_frames = sample.shape[:2]       # batch_size=2, num_frames=25
+        timesteps = timesteps.expand(batch_size)        # (b=2,)로 확장
 
-        t_emb = self.time_proj(timesteps)
+        t_emb = self.time_proj(timesteps)               # self.time_proj: Timesteps 클래스. t_emb: (b=2, c=320) 상수 벡터
 
         # `Timesteps` does not contain any weights and will always return f32 tensors
         # but time_embedding might actually be running in fp16. so we need to cast here.
         # there might be better ways to encapsulate this.
         t_emb = t_emb.to(dtype=sample.dtype)
 
-        emb = self.time_embedding(t_emb)
+        emb = self.time_embedding(t_emb)    # self.time_embedding: TimestepEmbedding 클래스 (FC network). emb: t_emb(2,320)->(b=2, 1280) 최종 타임 임베딩. 
 
-        time_embeds = self.add_time_proj(added_time_ids.flatten())
-        time_embeds = time_embeds.reshape((batch_size, -1))
+        time_embeds = self.add_time_proj(added_time_ids.flatten())  # self.add_time_proj: Timesteps 클래스. time_embeds: ids (6,) -> (6, 256)
+        time_embeds = time_embeds.reshape((batch_size, -1))         # (6, 256) -> (2, 768). 
         time_embeds = time_embeds.to(emb.dtype)
-        aug_emb = self.add_embedding(time_embeds)
-        emb = emb + aug_emb
+        aug_emb = self.add_embedding(time_embeds)  # self.add_embedding: TimestepEmbedding 클래스 (FC network). (2, 768) -> (2, 1280)
+        emb = emb + aug_emb                        # (b=2, 1280). 최종 타임 임베딩은 결국 timestep과 added_time_ids의 학습된 임베딩을 더한 것.
 
         # Flatten the batch and frames dimensions
         # sample: [batch, frames, channels, height, width] -> [batch * frames, channels, height, width]
-        sample = sample.flatten(0, 1)
+        sample = sample.flatten(0, 1)                     # (50, 8, 72, 128)
         # Repeat the embeddings num_video_frames times
         # emb: [batch, channels] -> [batch * frames, channels]
-        emb = emb.repeat_interleave(num_frames, dim=0)
+        emb = emb.repeat_interleave(num_frames, dim=0)    # (50, 1280)
         # encoder_hidden_states: [batch, 1, channels] -> [batch * frames, 1, channels]
-        encoder_hidden_states = encoder_hidden_states.repeat_interleave(num_frames, dim=0)
+        encoder_hidden_states = encoder_hidden_states.repeat_interleave(num_frames, dim=0)    # (50, 1, 1024)
 
         # 2. pre-process
-        sample = self.conv_in(sample)
+        sample = self.conv_in(sample)       # (50, 8, 72, 128) -> (50, 320, 72, 128). 320개의 채널로 변환. conv_in: Conv2d(8, 320, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
 
-        image_only_indicator = torch.zeros(batch_size, num_frames, dtype=sample.dtype, device=sample.device)
+        image_only_indicator = torch.zeros(batch_size, num_frames, dtype=sample.dtype, device=sample.device)  # (b=2, t=25). 
 
         down_block_res_samples = (sample,)
         for downsample_block in self.down_blocks:
             if hasattr(downsample_block, "has_cross_attention") and downsample_block.has_cross_attention:
-                sample, res_samples = downsample_block(
+                sample, res_samples = downsample_block(         # downsample_block: CrossAttnDownBlockSpatioTemporal 클래스
                     hidden_states=sample,
                     temb=emb,
-                    encoder_hidden_states=encoder_hidden_states,
+                    encoder_hidden_states=encoder_hidden_states,    # (b*t=50, 1, 1024)
                     image_only_indicator=image_only_indicator,
                 )
             else:
@@ -448,7 +448,7 @@ class UNetSpatioTemporalConditionModel(ModelMixin, ConfigMixin, UNet2DConditionL
             down_block_res_samples += res_samples
 
         # 4. mid
-        sample = self.mid_block(
+        sample = self.mid_block(      # sample: (50, 1280, 9, 16) -> (50, 1280, 9, 16)
             hidden_states=sample,
             temb=emb,
             encoder_hidden_states=encoder_hidden_states,
@@ -477,12 +477,12 @@ class UNetSpatioTemporalConditionModel(ModelMixin, ConfigMixin, UNet2DConditionL
                 )
 
         # 6. post-process
-        sample = self.conv_norm_out(sample)
+        sample = self.conv_norm_out(sample)      # sample: (50, 320, 72, 128)
         sample = self.conv_act(sample)
-        sample = self.conv_out(sample)
+        sample = self.conv_out(sample)           # sample: (50, 320, 72, 128) -> (50, 4, 72, 128)
 
         # 7. Reshape back to original shape
-        sample = sample.reshape(batch_size, num_frames, *sample.shape[1:])
+        sample = sample.reshape(batch_size, num_frames, *sample.shape[1:])  # (50, 4, 72, 128) -> (2, 25, 4, 72, 128)
 
         if not return_dict:
             return (sample,)

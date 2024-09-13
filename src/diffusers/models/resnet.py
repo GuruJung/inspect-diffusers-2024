@@ -690,29 +690,29 @@ class SpatioTemporalResBlock(nn.Module):
         image_only_indicator: Optional[torch.Tensor] = None,
     ):
         num_frames = image_only_indicator.shape[-1]
-        hidden_states = self.spatial_res_block(hidden_states, temb)
+        hidden_states = self.spatial_res_block(hidden_states, temb)   # (50, 320, 72, 128). shape 변화 없음
 
         batch_frames, channels, height, width = hidden_states.shape
         batch_size = batch_frames // num_frames
 
         hidden_states_mix = (
             hidden_states[None, :].reshape(batch_size, num_frames, channels, height, width).permute(0, 2, 1, 3, 4)
-        )
+        )          # hidden_states_mix: (b=2, c=320, t=25, h=72, w=128). b*t를 분리하고 c를 중심으로 재배치
         hidden_states = (
             hidden_states[None, :].reshape(batch_size, num_frames, channels, height, width).permute(0, 2, 1, 3, 4)
-        )
+        )          # hidden_states: (b=2, c=320, t=25, h=72, w=128). b*t를 분리하고 c를 중심으로 재배치. but 값은 같지만 hidden_states_mix와는 텐서를 공유하지 않음
 
         if temb is not None:
-            temb = temb.reshape(batch_size, num_frames, -1)
+            temb = temb.reshape(batch_size, num_frames, -1) # (b=2, t=25, c=1280). b*t를 분리
 
-        hidden_states = self.temporal_res_block(hidden_states, temb)
+        hidden_states = self.temporal_res_block(hidden_states, temb)  # shape 변화 없음
         hidden_states = self.time_mixer(
             x_spatial=hidden_states_mix,
             x_temporal=hidden_states,
             image_only_indicator=image_only_indicator,
         )
 
-        hidden_states = hidden_states.permute(0, 2, 1, 3, 4).reshape(batch_frames, channels, height, width)
+        hidden_states = hidden_states.permute(0, 2, 1, 3, 4).reshape(batch_frames, channels, height, width)  # (bt, c, h, w)로 원래대로 shape 복귀
         return hidden_states
 
 

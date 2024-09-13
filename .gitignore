@@ -176,3 +176,17 @@ tags
 
 # wandb
 wandb
+ref/01_ddim_inversion.ipynb
+ref/01_ddim_inversion.py
+ref/DDS_zeroshot.ipynb
+ref/null_text_w_ptp.ipynb
+ref/null_text_w_ptp.py
+ref/p2p_stable_main_org.py
+ref/p2p_stable_main.py
+ref/prompt-to-prompt_ldm.ipynb
+ref/prompt-to-prompt_stable_commented.ipynb
+ref/prompt-to-prompt_stable.ipynb
+ref/ptp_utils_org.py
+ref/ptp_utils.py
+ref/pyastsim.py
+ref/seq_aligner.py
